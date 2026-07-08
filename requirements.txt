@@ -1,0 +1,22 @@
+# Core training stack.
+# NOTE: install torch separately first with the CUDA wheel index, e.g.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# (see scripts/setup_env.sh). torch is intentionally NOT pinned here so the
+# CUDA-matched wheel from the index URL is used.
+
+unsloth
+trl
+datasets
+huggingface_hub
+transformers
+
+# Imaging / utils
+pillow
+tqdm
+pyyaml
+
+# Evaluation metrics
+evaluate
+sacrebleu
+rouge_score
+nltk

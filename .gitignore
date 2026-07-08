@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
+# Data: images + HF cache are large and reproducible via build_dataset.py.
+# Keep the data/ folder (via .gitkeep) but ignore its heavy contents.
+# ---------------------------------------------------------------------------
+data/hf_cache/
+data/raw/
+data/processed/
+!data/.gitkeep
+
+# ---------------------------------------------------------------------------
+# Training outputs: per-run adapters, logs, baselines are large.
+# The registry index + leaderboard ARE tracked so benchmarks travel.
+# ---------------------------------------------------------------------------
+outputs/runs/
+outputs/baselines/
+outputs/*.log
+
+# Re-include the outputs folder and the benchmark index + leaderboard.
+!outputs/
+!outputs/.gitkeep
+!outputs/registry.jsonl
+!outputs/leaderboard.md
+
+# ---------------------------------------------------------------------------
+# Framework caches / artifacts generated at runtime
+# ---------------------------------------------------------------------------
+unsloth_compiled_cache/
+wandb/
+runs/                      # tensorboard
+*.pt
+*.bin
+*.safetensors
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+*.log
+nohup.out
+.DS_Store
+Thumbs.db

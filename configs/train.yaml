@@ -1,0 +1,55 @@
+# Default training / pipeline configuration.
+# Every field here is overridable on the CLI (see src/train_lora.py --help).
+
+# --- Experiment identity ---
+run_name: baseline          # label for this experiment (part of run_id)
+
+# --- Model ---
+base_model: unsloth/Qwen3-VL-4B-Instruct
+load_in_4bit: true          # QLoRA
+max_seq_length: 2048
+
+# --- LoRA ---
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.0
+finetune_vision_layers: true
+finetune_language_layers: true
+finetune_attention_modules: true
+finetune_mlp_modules: true
+
+# --- Data ---
+processed_dir: data/processed   # where train/val/test.jsonl live
+# Relative share of each task when sampling the training set.
+# Values are normalized; report share = 1 - vqa share when only these two exist.
+data_mix:
+  vqa: 0.6
+  report: 0.4
+image_max_side: 896         # longest image side (px) after downscale on import
+
+# --- Optimization ---
+learning_rate: 2.0e-4
+num_train_epochs: 2
+max_steps: -1               # -1 = use epochs; >0 overrides epochs
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+warmup_steps: 10
+weight_decay: 0.01
+lr_scheduler_type: linear
+optim: adamw_8bit
+logging_steps: 20
+save_steps: 200
+save_total_limit: 2
+seed: 3407
+
+# --- Hardware ---
+gpu: 0                      # CUDA device index used for this run
+disable_torch_compile: true # WSL often lacks nvcc; keep true unless toolchain OK
+
+# --- Smoke test (activated by --smoke) ---
+smoke:
+  max_samples: 200         # total training examples
+  max_steps: 30
+  logging_steps: 5
+  save_steps: 30
+  num_eval_samples: 40     # held-out examples scored after the smoke run
