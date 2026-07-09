@@ -35,7 +35,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-samples", type=int, default=None)
     p.add_argument("--smoke", action="store_true", help="tiny 200-sample run")
     p.add_argument("--eval-after", action="store_true",
-                   help="run src.eval automatically after training")
+                   help="run in-domain src.eval automatically after training")
+    p.add_argument("--crosssite-after", action="store_true",
+                   help="run cross-site eval(s) after training "
+                        "(builds each set if missing)")
+    p.add_argument("--crosssite-name", default="slake_xray_en",
+                   help="comma-separated cross-site set name(s), or 'all' for "
+                        "every registered set")
     return p.parse_args()
 
 
@@ -219,13 +225,38 @@ def main() -> None:
     registry.update_run(run_id, status="trained", train_minutes=round(train_minutes, 2))
     print(f"==> Saved adapter to {lora_dir} ({train_minutes:.1f} min)")
 
+    num_eval = c.get("_num_eval_samples") if args.smoke else None
+
     if args.eval_after:
         from .eval import evaluate_run
 
-        evaluate_run(
-            run_id=run_id,
-            num_samples=c.get("_num_eval_samples") if args.smoke else None,
-        )
+        evaluate_run(run_id=run_id, num_samples=num_eval)
+
+    if args.crosssite_after:
+        from .build_crosssite import CROSSSITE_DIR, build
+        from .datasets_registry import CROSSSITE_ADAPTERS
+        from .eval import evaluate_crosssite
+
+        if args.crosssite_name.strip().lower() == "all":
+            cs_names = sorted(CROSSSITE_ADAPTERS)
+        else:
+            cs_names = [s.strip() for s in args.crosssite_name.split(",") if s.strip()]
+
+        for cs_name in cs_names:
+            eval_path = CROSSSITE_DIR / f"{cs_name}.jsonl"
+            if not eval_path.exists():
+                build(
+                    name=cs_name,
+                    limit=None,
+                    image_max_side=int(c.get("image_max_side", 896)),
+                    out_dir=CROSSSITE_DIR,
+                )
+            evaluate_crosssite(
+                run_id=run_id,
+                eval_path=str(eval_path),
+                name=cs_name,
+                num_samples=num_eval,
+            )
 
     print(f"==> Done. run_id = {run_id}")
 

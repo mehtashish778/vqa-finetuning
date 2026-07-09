@@ -1,0 +1,19 @@
+{
+  "crosssite_version": "a332b51b",
+  "source": [
+    "slake"
+  ],
+  "image_max_side": 896,
+  "created": "2026-07-08T21:34:53",
+  "n_rows": 2122,
+  "n_images": 179,
+  "by_answer_type": {
+    "open": 1459,
+    "closed": 663
+  },
+  "by_split_src": {
+    "train": 1423,
+    "validation": 338,
+    "test": 361
+  }
+}

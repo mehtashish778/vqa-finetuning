@@ -40,6 +40,7 @@ and data on any GPU server, so the pipeline is portable.
 | Train | `python -m src.train_lora --config configs/train.yaml` | `outputs/runs/<run_id>/lora/` |
 | Evaluate | `python -m src.eval --run-id <run_id>` | `metrics.json`, updated `registry.jsonl` |
 | Infer | `python -m src.infer --run-id <run_id> --image path --question "..."` | stdout |
+| Cross-site eval | `bash scripts/eval_crosssite.sh <run_id>` | `crosssite_<name>.json`, `crosssite` field in `registry.jsonl` |
 | Leaderboard | `python scripts/leaderboard.py` | `outputs/leaderboard.md` |
 
 ---
@@ -77,6 +78,52 @@ model is benchmarked on the exact same examples.
 
 `registry.jsonl` and `leaderboard.md` are committed to git so benchmark
 history travels across servers even though the raw adapters are gitignored.
+
+---
+
+## Cross-site (external) evaluation
+
+To measure **generalization**, runs can be scored on held-out external sets
+that are **never used for training** and kept entirely out of `data/processed/`,
+the training `ADAPTERS`, and the `data_version` benchmark. Cross-site sets are a
+**registry**, just like training datasets — each is one entry in
+`CROSSSITE_ADAPTERS` (in `src/datasets_registry.py`) and is scored/stored
+independently (its own `crosssite_<name>.json`, `crosssite[name]` registry
+field, namespaced baseline, and leaderboard column).
+
+Registered sets:
+
+- **`slake_xray_en`** — SLAKE (`Keetawan/SLAKE`) filtered to English chest X-ray
+  (`q_lang=='en' AND modality=='X-Ray'`) — 2,122 QA over 179 images.
+
+```bash
+python -m src.build_crosssite --name slake_xray_en   # one set
+python -m src.build_crosssite --all                  # every registered set
+bash scripts/eval_crosssite.sh <run_id>              # or CS_GPU=1 CS_NUM_SAMPLES=200 ...
+```
+
+It can also run **automatically at the end of training**, just like
+`--eval-after` (each set is built first if missing). `--crosssite-name` takes a
+comma-separated list or `all`:
+
+```bash
+python -m src.train_lora --run-name expA --gpu 0 --eval-after --crosssite-after
+python -m src.train_lora --run-name expA --gpu 0 --crosssite-after --crosssite-name all
+```
+
+**Adding a new cross-site set:** write a loader
+`load_<x>(image_max_side, limit) -> List[Dict]` (unified schema, unique
+`study_id`) in `src/datasets_registry.py`, then add one line to
+`CROSSSITE_ADAPTERS`. The builder, `--crosssite-after`, and the leaderboard pick
+it up automatically — no other changes.
+
+Results are written to `outputs/runs/<run_id>/crosssite_<name>.json` and merged
+into a `crosssite` field on the registry row (the in-domain `metrics.json` is
+left untouched). The frozen base is scored as a baseline and cached separately
+(keyed by `base_model + crosssite_version`). `scripts/leaderboard.py` shows a
+`cs_vqa_acc` / `cs_d_acc` column beside the in-domain numbers. Cross-site scores
+are typically lower than in-domain (different institution and question mix) —
+that gap is the generalization signal.
 
 ### Running many experiments (2 GPUs)
 

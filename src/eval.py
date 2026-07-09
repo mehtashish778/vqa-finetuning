@@ -23,12 +23,13 @@ import os
 import random
 import re
 import string
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .dataset import load_rows, open_image
 from .registry import RUNS_DIR
-from .utils import ROOT, load_yaml
+from .utils import ROOT, load_jsonl, load_yaml, rel_to_root
 
 _PUNCT = str.maketrans("", "", string.punctuation)
 
@@ -208,16 +209,112 @@ def evaluate_run(run_id: str, num_samples: Optional[int] = None) -> Dict[str, fl
     return ft_metrics
 
 
+def evaluate_crosssite(
+    run_id: str,
+    eval_path: str,
+    name: str = "slake_xray_en",
+    num_samples: Optional[int] = None,
+) -> Dict[str, float]:
+    """Score a run on a held-out CROSS-SITE eval set (e.g. SLAKE).
+
+    Results are written to ``outputs/runs/<run_id>/crosssite_<name>.json`` and
+    merged into a ``crosssite`` field on the registry row. The in-domain
+    ``metrics.json`` / ``data_version`` benchmark is never touched. The frozen
+    base is scored as a baseline and cached in a namespace separate from the
+    in-domain baseline (keyed by base_model + crosssite_version).
+    """
+    from . import registry
+
+    cfg = load_yaml(ROOT / "configs" / "train.yaml")
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(cfg.get("gpu", 0)))
+
+    meta = _run_meta(run_id)
+    base_model = meta["base_model"]
+    seed = int(cfg.get("seed", 3407))
+
+    eval_file = Path(eval_path)
+    rows = load_jsonl(eval_file)
+    if not rows:
+        raise ValueError(f"No rows in cross-site set {eval_file}")
+
+    # crosssite_version keys the baseline cache; read from the sibling stats.json.
+    crosssite_version = "unknown"
+    stats_path = eval_file.parent / "stats.json"
+    if stats_path.exists():
+        with open(stats_path, "r", encoding="utf-8") as f:
+            crosssite_version = json.load(f).get("crosssite_version", "unknown")
+
+    full = num_samples is None
+    eval_rows = _subsample(rows, num_samples, seed)
+    print(
+        f"==> Cross-site eval [{name}] run {run_id} on {len(eval_rows)} rows "
+        f"(crosssite_version={crosssite_version})"
+    )
+
+    adapter_dir = RUNS_DIR / run_id / "lora"
+    ft_metrics = _score_model(str(adapter_dir), eval_rows, cfg)
+    print(f"    finetuned: {ft_metrics}")
+
+    # Baseline: cache only for full runs (subsets differ per call).
+    cache_key = f"crosssite-{name}-{crosssite_version}"
+    baseline = registry.load_baseline(base_model, cache_key) if full else None
+    if baseline is None:
+        print("==> Scoring frozen base model for cross-site baseline...")
+        baseline = _score_model(base_model, eval_rows, cfg)
+        if full:
+            registry.save_baseline(base_model, cache_key, baseline)
+    print(f"    baseline:  {baseline}")
+
+    entry = {
+        "metrics": ft_metrics,
+        "baseline": baseline,
+        "n": len(eval_rows),
+        "crosssite_version": crosssite_version,
+        "eval_path": rel_to_root(eval_file),
+        "evaluated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    with open(run_dir / f"crosssite_{name}.json", "w", encoding="utf-8") as f:
+        json.dump({"run_id": run_id, "name": name, **entry}, f, indent=2)
+
+    # Merge into the run's 'crosssite' dict without clobbering other names.
+    existing: Dict[str, Dict] = {}
+    for r in registry.load_registry():
+        if r.get("run_id") == run_id:
+            existing = dict(r.get("crosssite") or {})
+            break
+    existing[name] = entry
+    registry.update_run(run_id, crosssite=existing)
+    print(f"==> Logged cross-site [{name}] for {run_id}: {ft_metrics}")
+    return ft_metrics
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate a run on the frozen test set.")
     p.add_argument("--run-id", required=True)
     p.add_argument("--num-samples", type=int, default=None)
+    p.add_argument(
+        "--crosssite",
+        default=None,
+        help="path to a cross-site eval JSONL (e.g. data/crosssite/slake_xray_en.jsonl)",
+    )
+    p.add_argument("--crosssite-name", default="slake_xray_en")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    evaluate_run(run_id=args.run_id, num_samples=args.num_samples)
+    if args.crosssite:
+        evaluate_crosssite(
+            run_id=args.run_id,
+            eval_path=args.crosssite,
+            name=args.crosssite_name,
+            num_samples=args.num_samples,
+        )
+    else:
+        evaluate_run(run_id=args.run_id, num_samples=args.num_samples)
 
 
 if __name__ == "__main__":

@@ -253,7 +253,69 @@ def load_iu_xray(image_max_side: int = 896, limit: Optional[int] = None) -> List
         return _load_iu_fallback(image_max_side, limit)
 
 
+# ---------------------------------------------------------------------------
+# SLAKE  (Keetawan/SLAKE) -- EVAL-ONLY cross-site set, NOT for training.
+# ---------------------------------------------------------------------------
+def load_slake(image_max_side: int = 896, limit: Optional[int] = None) -> List[Dict]:
+    """Load SLAKE English chest X-ray VQA for cross-site (external) evaluation.
+
+    Kept OUT of ``ADAPTERS`` on purpose: this is a held-out generalization set
+    and must never enter the training build. Consumed only by
+    ``src.build_crosssite``. Filters to English (``q_lang == 'en'``) chest
+    X-ray (``modality == 'X-Ray'``); since SLAKE's only X-rays are the 179
+    chest films from ChestX-ray8, this excludes all CT/MRI and non-chest.
+    """
+    from datasets import load_dataset
+
+    ds = load_dataset("Keetawan/SLAKE")  # train/validation/test, both languages
+    img_dir = RAW_DIR / "slake" / "images"
+    saved: set = set()
+    rows: List[Dict] = []
+    for split in ds.keys():
+        count = 0
+        for ex in ds[split]:
+            if limit is not None and count >= limit:
+                break
+            if str(ex.get("q_lang")) != "en":
+                continue
+            if str(ex.get("modality", "")).lower().replace("-", "") != "xray":
+                continue
+            study = str(ex["img_name"]).split("/")[0]  # e.g. 'xmlab120'
+            study_id = f"slake_{study}"
+            out_name = f"{study_id}.png"
+            if study_id not in saved:
+                _save_image(_to_rgb(ex["image"]), img_dir / out_name, image_max_side)
+                saved.add(study_id)
+            answer = str(ex["answer"]).strip()
+            atype = "closed" if str(ex.get("answer_type", "")).upper() == "CLOSED" else "open"
+            rows.append(
+                {
+                    "task": "vqa",
+                    "source": "slake",
+                    "access": "open",
+                    "image": rel_to_root(img_dir / out_name),
+                    "study_id": study_id,
+                    "prompt": VQA_PROMPT.format(q=str(ex["question"]).strip()),
+                    "target": answer,
+                    "answer_type": atype,
+                    "content_type": ex.get("content_type"),
+                    "split_src": split,
+                }
+            )
+            count += 1
+    return rows
+
+
 ADAPTERS: Dict[str, Callable[..., List[Dict]]] = {
     "vqa_rad": load_vqa_rad,
     "iu_xray": load_iu_xray,
+}
+
+# Cross-site (external) EVAL-ONLY datasets. Kept separate from ADAPTERS so they
+# can never leak into the training build. Add a new held-out set by writing a
+# loader with signature ``(image_max_side, limit) -> List[Dict]`` and adding one
+# entry here; ``src.build_crosssite`` and ``--crosssite-after`` pick it up
+# automatically.
+CROSSSITE_ADAPTERS: Dict[str, Callable[..., List[Dict]]] = {
+    "slake_xray_en": load_slake,
 }

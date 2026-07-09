@@ -18,7 +18,9 @@ sys.path.insert(0, str(ROOT))
 
 from src.registry import REGISTRY_PATH, load_registry  # noqa: E402
 
-COLUMNS = [
+# In-domain columns. Cross-site columns are inserted dynamically (one per
+# registered/observed cross-site set) between these and the tail columns.
+HEAD_COLUMNS = [
     ("run_id", "run_id"),
     ("base_model", "base_model"),
     ("lora_r", "r"),
@@ -33,6 +35,8 @@ COLUMNS = [
     ("report_bleu", "bleu"),
     ("report_rougeL", "rougeL"),
     ("d_vqa_acc", "d_vqa_acc"),
+]
+TAIL_COLUMNS = [
     ("data_version", "data_ver"),
     ("status", "status"),
 ]
@@ -51,7 +55,32 @@ def _flatten(row: dict) -> dict:
     flat["base_model"] = _short_model(row.get("base_model", ""))
     if "vqa_acc" in metrics and "vqa_acc" in baseline:
         flat["d_vqa_acc"] = round(metrics["vqa_acc"] - baseline["vqa_acc"], 4)
+
+    # Cross-site (external) generalization: one pair of columns per set.
+    for name, entry in (row.get("crosssite") or {}).items():
+        cs_metrics = (entry or {}).get("metrics") or {}
+        cs_baseline = (entry or {}).get("baseline") or {}
+        if "vqa_acc" in cs_metrics:
+            flat[f"cs_{name}_acc"] = cs_metrics["vqa_acc"]
+            if "vqa_acc" in cs_baseline:
+                flat[f"cs_{name}_d"] = round(
+                    cs_metrics["vqa_acc"] - cs_baseline["vqa_acc"], 4
+                )
     return flat
+
+
+def _crosssite_columns(rows: list) -> list:
+    """Discover cross-site set names across all runs and emit acc/delta columns."""
+    names: list = []
+    for r in rows:
+        for name in (r.get("crosssite") or {}):
+            if name not in names:
+                names.append(name)
+    cols = []
+    for name in sorted(names):
+        cols.append((f"cs_{name}_acc", f"cs:{name}"))
+        cols.append((f"cs_{name}_d", f"csd:{name}"))
+    return cols
 
 
 def _fmt(v) -> str:
@@ -65,10 +94,12 @@ def _fmt(v) -> str:
 
 
 def build_table(sort_key: str):
-    rows = [_flatten(r) for r in load_registry()]
+    raw = load_registry()
+    columns = HEAD_COLUMNS + _crosssite_columns(raw) + TAIL_COLUMNS
+    rows = [_flatten(r) for r in raw]
     rows.sort(key=lambda r: (r.get(sort_key) is None, -(r.get(sort_key) or 0)))
-    header = [label for _, label in COLUMNS]
-    body = [[_fmt(r.get(field)) for field, _ in COLUMNS] for r in rows]
+    header = [label for _, label in columns]
+    body = [[_fmt(r.get(field)) for field, _ in columns] for r in rows]
     return header, body
 
 

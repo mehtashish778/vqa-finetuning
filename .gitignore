@@ -20,6 +20,7 @@ env/
 data/hf_cache/
 data/raw/
 data/processed/
+data/crosssite/            # held-out cross-site eval set (reproducible)
 !data/.gitkeep
 
 # ---------------------------------------------------------------------------
@@ -53,3 +54,6 @@ runs/                      # tensorboard
 nohup.out
 .DS_Store
 Thumbs.db
+
+
+CUsersmehtaDesktopvqa-finetuning/
