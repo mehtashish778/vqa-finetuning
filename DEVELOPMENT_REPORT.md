@@ -21,12 +21,14 @@ Development to date includes:
 
 ### Current status (as of 2026-07-12)
 
-| Run | Sources | VQA acc | VQA F1 | Report BLEU / ROUGE-L | SLAKE cross-site | Role |
-|-----|---------|---------|--------|----------------------|------------------|------|
-| **`…170640`** (Jul 8) | `vqa_rad`, `iu_xray` | **0.5499** | **0.3800** | 0.0743 / 0.2656 | Not run | **Best in-domain VQA** |
-| **`…142243`** (Jul 9) | + `vqa_med` | 0.4109 | 0.2523 | 0.0746 / 0.2651 | **0.3944** (base 0.5410) | Latest 3-source; broader but weaker |
+| Run | Sources | **Train time** | n_train | VQA acc | VQA F1 | Report BLEU / ROUGE-L | SLAKE | Role |
+|-----|---------|----------------|---------|---------|--------|----------------------|-------|------|
+| **`…170640`** (Jul 8) | `vqa_rad`, `iu_xray` | **52.17 min** (~0.87 h) | 3,688 | **0.5499** | **0.3800** | 0.0743 / 0.2656 | — | **Best in-domain VQA** |
+| **`…142243`** (Jul 9) | + `vqa_med` | **67.75 min** (~1.13 h) | 4,725 | 0.4109 | 0.2523 | 0.0746 / 0.2651 | 0.3944 | Latest 3-source; broader but weaker |
 
-**Key finding:** Adding incomplete VQA-Med (missing 2020 AIcrowd train zip) lowered headline VQA accuracy by ~14 pp versus the Jul 8 2-source run. Report metrics stayed essentially unchanged. On SLAKE, fine-tuning *hurt* generalization (−14.7 pp vs frozen base). Use Jul 8 for VQA-RAD work until VQA-Med data is complete.
+`train_minutes` is logged in the registry for every run and is a **key experiment parameter** (alongside LoRA r/α, lr, epochs, n_train, GPU). It covers **LoRA training only** — in-domain and cross-site eval are generation-bound and take substantially longer wall-clock (often hours).
+
+**Key finding:** Adding incomplete VQA-Med (missing 2020 AIcrowd train zip) lowered headline VQA accuracy by ~14 pp versus the Jul 8 2-source run, for **+15.6 min** extra training (+30%). Report metrics stayed essentially unchanged. On SLAKE, fine-tuning *hurt* generalization (−14.7 pp vs frozen base). Use Jul 8 for VQA-RAD work until VQA-Med data is complete.
 
 Processed data is still `data_version: 2e673c1d` (rebuild on 2026-07-09 confirmed identical counts; **2020 train still skipped**).
 
@@ -90,11 +92,11 @@ flowchart TB
 | **6. Evaluation** | `src/eval.py` — VQA acc/F1, report BLEU/ROUGE-L, baseline comparison | Done |
 | **7. Model registry** | `src/registry.py`, `scripts/leaderboard.py`, per-run artifact dirs | Done |
 | **8. Smoke validation** | `scripts/run_smoke.sh` — 200-sample end-to-end on GPU 0 | Done |
-| **9. Full training run (2-source)** | `full-…-170640` on 3,688 train rows — **best VQA to date** | Done |
+| **9. Full training run (2-source)** | `full-…-170640` on 3,688 rows — **52.17 min** train — **best VQA to date** | Done |
 | **10. Cross-site eval** | SLAKE pipeline (`src/build_crosssite.py`, `scripts/eval_crosssite.sh`) | Done |
 | **11. VQA-Med integration** | `src/vqa_med_io.py`, `load_vqa_med`, chest X-ray filter, 3rd training source | Done (partial: no 2020 train) |
 | **12. Task balancing** | `balance_tasks: true` — 60/40 VQA/report mix on full training | Done |
-| **13. Full training run (3-source)** | `full-…-142243` on 4,725 train rows + SLAKE cross-site | Done |
+| **13. Full training run (3-source)** | `full-…-142243` on 4,725 rows — **67.75 min** train + SLAKE cross-site | Done |
 | **14. Rebuild / probe** | Re-download + rebuild (`2e673c1d`); confirmed 2020 train still missing | Done (no new data) |
 
 ---
@@ -177,17 +179,39 @@ Headline VQA numbers are **not apples-to-apples**: Jul 9 adds 138 VQA-Med test r
 | Field | Jul 8 `…170640` | Jul 9 `…142243` |
 |-------|-----------------|-----------------|
 | **Sources** | `vqa_rad`, `iu_xray` | + `vqa_med` |
-| **Train / eval** | 3,688 / 1,041 | 4,725 / 1,179 |
-| **Train time** | 52.2 min | 67.8 min |
-| **`data_version`** | `91e79275` | `2e673c1d` |
+| **Train / eval examples** | 3,688 / 1,041 | 4,725 / 1,179 |
+| **Train time (`train_minutes`)** | **52.17 min** (~0.87 h) | **67.75 min** (~1.13 h) |
+| **Approx. optimizer steps** | ~922 (2 epochs × 3,688 / 8) | **1,182** (logged) |
+| **Throughput** | ~0.057 min/step | ~0.057 min/step |
 | **GPU** | 0 | 1 |
+| **`data_version`** | `91e79275` | `2e673c1d` |
 | **Git commit** | `bfde551` | `4510a6c` |
 | **VQA acc / F1** | **0.5499 / 0.3800** | 0.4109 / 0.2523 |
 | **Δ vs base (acc / F1)** | **+0.0776 / +0.1162** | +0.0459 / +0.0809 |
 | **Report BLEU / ROUGE-L** | 0.0743 / 0.2656 | 0.0746 / 0.2651 |
 | **SLAKE acc (finetuned / base)** | — | 0.3944 / 0.5410 |
 
-### 5.1 Per-source VQA (Jul 9)
+Shared training recipe for both full runs: Qwen3-VL-4B-Instruct, 4-bit QLoRA **r=16 / α=32**, lr **2e-4**, **2 epochs**, batch **1** + grad accum **8**, `data_mix` 60/40 VQA/report, seed **3407**. Jul 9 also sets `balance_tasks: true`.
+
+### 5.1 Training time (key parameter)
+
+| Run ID | Type | GPU | n_train | **Train time** | Hours | Notes |
+|--------|------|-----|---------|----------------|-------|-------|
+| `smoke-…-162605` | Smoke | 0 | 200 | **1.75 min** | 0.03 | max_steps=30 |
+| `smoke-…-163050` | Smoke | 0 | 200 | **5.18 min** | 0.09 | max_steps=30 |
+| `smoke-…-124448` | Smoke | 0 | 200 | **1.78 min** | 0.03 | +vqa_med |
+| `full-…-131844` | Full (aborted) | 0 | 328 | **4.55 min** | 0.08 | trained, no eval |
+| **`full-…-170640`** | **Full** | **0** | **3,688** | **52.17 min** | **0.87** | **Best VQA** |
+| **`full-…-142243`** | **Full** | **1** | **4,725** | **67.75 min** | **1.13** | 3-source + SLAKE |
+
+**Interpretation:**
+
+- Full LoRA training is ~**1 hour** on a 12 GB GPU for this recipe; Jul 9 cost **+15.6 min (+30%)** for +1,037 balanced train rows.
+- Step throughput is essentially identical across GPUs 0/1 (~0.057 min/step) — time scales with **n_train × epochs / grad_accum**.
+- `train_minutes` is written to `outputs/registry.jsonl` and the leaderboard `min` column; treat it as a tracked hyperparameter/outcome for every experiment.
+- **Eval wall-clock is separate and larger:** in-domain generation on ~1k test rows typically takes **several hours**; Jul 9 SLAKE (2,122 rows) was an additional long generation pass after training.
+
+### 5.2 Per-source VQA (Jul 9)
 
 | Source | Finetuned acc | Finetuned F1 | Base acc | Δ acc |
 |--------|---------------|--------------|----------|-------|
@@ -196,16 +220,17 @@ Headline VQA numbers are **not apples-to-apples**: Jul 9 adds 138 VQA-Med test r
 
 On the shared VQA-RAD slice, Jul 9 (51.4%) is still below Jul 8’s overall VQA (55.0%), which was VQA-RAD-only.
 
-### 5.2 Why Jul 9 underperformed
+### 5.3 Why Jul 9 underperformed
 
 1. **Different test mix** — overall VQA blends strong VQA-RAD with weak VQA-Med.
 2. **Less VQA-RAD exposure** — ~44% → ~34% of training steps after mixing + `balance_tasks`.
 3. **Incomplete VQA-Med** — missing 2020 train; heterogeneous ImageCLEF questions; tiny XR-filtered set.
 4. **Cross-site overfit** — SLAKE dropped 14.7 pp vs frozen base after fine-tuning.
+5. **Higher train cost without better VQA** — **67.75 vs 52.17 min** (+30% wall time) for worse headline accuracy.
 
 Report generation did **not** regress.
 
-### 5.3 Artifacts
+### 5.4 Artifacts
 
 ```
 outputs/runs/full-Qwen3VL4BInstruct-r16-20260708-170640/
@@ -226,17 +251,17 @@ outputs/runs/full-Qwen3VL4BInstruct-r16-20260709-142243/
 
 ## 6. Other completed runs (summary)
 
-| Run ID | Type | n_train | n_eval | Train (min) | VQA acc | Δ acc | Notes |
-|--------|------|---------|--------|-------------|---------|-------|-------|
-| `smoke-…-163050` | Smoke | 200 | 40 | 5.18 | 0.55 | +0.10 | 2-source |
-| `smoke-…-162605` | Smoke | 200 | 40 | 1.75 | 0.50 | +0.05 | SLAKE 50-sample |
-| **`full-…-170640`** | **Full** | **3688** | **1041** | **52.17** | **0.55** | **+0.08** | **Best in-domain VQA** |
-| `smoke-…-124448` | Smoke | 200 | 40 | 1.78 | 0.25 | +0.00 | +vqa_med; 0% on vqa_med |
-| **`full-…-142243`** | **Full** | **4725** | **1179** | **67.75** | **0.41** | **+0.05** | 3-source + SLAKE 39.4% |
+| Run ID | Type | n_train | n_eval | **Train time** | VQA acc | Δ acc | Notes |
+|--------|------|---------|--------|----------------|---------|-------|-------|
+| `smoke-…-162605` | Smoke | 200 | 40 | **1.75 min** | 0.50 | +0.05 | SLAKE 50-sample |
+| `smoke-…-163050` | Smoke | 200 | 40 | **5.18 min** | 0.55 | +0.10 | 2-source |
+| **`full-…-170640`** | **Full** | **3688** | **1041** | **52.17 min (~0.87 h)** | **0.55** | **+0.08** | **Best in-domain VQA** |
+| `smoke-…-124448` | Smoke | 200 | 40 | **1.78 min** | 0.25 | +0.00 | +vqa_med; 0% on vqa_med |
+| **`full-…-142243`** | **Full** | **4725** | **1179** | **67.75 min (~1.13 h)** | **0.41** | **+0.05** | 3-source + SLAKE 39.4% |
 
-Incomplete / aborted: `full-…-131844` (trained, no eval), `full-…-134003` (started).
+Incomplete / aborted: `full-…-131844` (**4.55 min** train, no eval), `full-…-134003` (started, no `train_minutes`).
 
-Full leaderboard: [`outputs/leaderboard.md`](outputs/leaderboard.md)
+Full leaderboard (`min` = train minutes): [`outputs/leaderboard.md`](outputs/leaderboard.md)
 
 ---
 
@@ -344,4 +369,4 @@ From the original [`vlm_report_vqa_plan.md`](vlm_report_vqa_plan.md) and current
 
 ---
 
-*This report reflects the repository state as of 2026-07-12. Processed data is still `2e673c1d` with incomplete VQA-Med (no 2020 train). Jul 8 (`…170640`) remains the best in-domain VQA adapter; Jul 9 (`…142243`) is the latest 3-source run with SLAKE cross-site results.*
+*This report reflects the repository state as of 2026-07-12. Processed data is still `2e673c1d` with incomplete VQA-Med (no 2020 train). Jul 8 (`…170640`) remains the best in-domain VQA adapter (**52.17 min** train); Jul 9 (`…142243`) is the latest 3-source run (**67.75 min** train) with SLAKE cross-site results. Training time (`train_minutes`) is a tracked key parameter in the registry and leaderboard.*
