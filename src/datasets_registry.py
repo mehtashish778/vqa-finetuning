@@ -306,9 +306,58 @@ def load_slake(image_max_side: int = 896, limit: Optional[int] = None) -> List[D
     return rows
 
 
+# ---------------------------------------------------------------------------
+# VQA-Med  (ImageCLEF 2019–2021) — chest X-ray / plain film only
+# ---------------------------------------------------------------------------
+def load_vqa_med(image_max_side: int = 896, limit: Optional[int] = None) -> List[Dict]:
+    """Load VQA-Med 2019–2021 (XR/plain film only) for training.
+
+  ``limit`` caps rows per official split **per year** (after XR filtering).
+    """
+    from .vqa_med_io import collect_vqa_med_rows
+
+    img_dir = RAW_DIR / "vqa_med" / "images"
+    raw_rows, _stats = collect_vqa_med_rows(limit_per_split=limit)
+    if not raw_rows:
+        raise RuntimeError(
+            "VQA-Med produced 0 rows after XR filter. Run scripts/probe_vqa_med.py "
+            "or check data/raw/vqa_med/manifest.json."
+        )
+
+    sig_to_study: Dict[str, str] = {}
+    rows: List[Dict] = []
+    for raw in raw_rows:
+        img = _to_rgb(raw["image"])
+        sig = raw["content_sig"]
+        if sig not in sig_to_study:
+            study_id = f"vqamed_{sig[:12]}"
+            sig_to_study[sig] = study_id
+            _save_image(img, img_dir / f"{study_id}.png", image_max_side)
+        study_id = sig_to_study[sig]
+        answer = str(raw["answer"]).strip()
+        rows.append(
+            {
+                "task": "vqa",
+                "source": "vqa_med",
+                "access": "open",
+                "image": rel_to_root(img_dir / f"{study_id}.png"),
+                "study_id": study_id,
+                "prompt": VQA_PROMPT.format(q=str(raw["question"]).strip()),
+                "target": answer,
+                "answer_type": _classify_answer_type(answer),
+                "split": raw["split"],
+                "vqamed_year": raw["year"],
+                "question_category": raw.get("question_category", "unknown"),
+                "image_id": raw.get("image_id"),
+            }
+        )
+    return rows
+
+
 ADAPTERS: Dict[str, Callable[..., List[Dict]]] = {
     "vqa_rad": load_vqa_rad,
     "iu_xray": load_iu_xray,
+    "vqa_med": load_vqa_med,
 }
 
 # Cross-site (external) EVAL-ONLY datasets. Kept separate from ADAPTERS so they

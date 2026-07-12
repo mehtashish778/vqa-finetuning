@@ -2,7 +2,7 @@
 
 **Generated:** 2026-07-09  
 **Repository:** `vqa-finetuning`  
-**Primary reference run:** [`full-Qwen3VL4BInstruct-r16-20260708-170640`](outputs/runs/full-Qwen3VL4BInstruct-r16-20260708-170640)
+**Primary reference run:** [`full-Qwen3VL4BInstruct-r16-20260709-142243`](outputs/runs/full-Qwen3VL4BInstruct-r16-20260709-142243)
 
 ---
 
@@ -18,7 +18,7 @@ Development to date includes:
 - Automated experiment tracking (`outputs/registry.jsonl`, `outputs/leaderboard.md`)
 - Post-training hooks for in-domain eval (`--eval-after`) and cross-site eval (`--crosssite-after`)
 
-The flagship **full training run** (`full-Qwen3VL4BInstruct-r16-20260708-170640`) was trained on **VQA-RAD + IU X-Ray** (2 sources, pre–VQA-Med integration) and evaluated on **1,041 frozen test examples**, achieving **+7.8 pp VQA accuracy** over the frozen base model.
+The current **flagship full training run** (`full-Qwen3VL4BInstruct-r16-20260709-142243`) trains on **VQA-RAD + IU X-Ray + VQA-Med (chest X-ray)** with task balancing and is evaluated on **1,179 frozen test examples** (`data_version: 2e673c1d`), achieving **+4.6 pp VQA accuracy** and **+8.1 pp VQA F1** over the frozen base on the expanded test set. Report generation improves by **+6.4 BLEU** and **+14.9 ROUGE-L**. Cross-site eval on **2,122 SLAKE** English chest X-ray questions shows **39.4% accuracy** (base model: **54.1%**), indicating a generalization gap on held-out external data.
 
 ---
 
@@ -80,10 +80,11 @@ flowchart TB
 | **6. Evaluation** | `src/eval.py` — VQA acc/F1, report BLEU/ROUGE-L, baseline comparison | Done |
 | **7. Model registry** | `src/registry.py`, `scripts/leaderboard.py`, per-run artifact dirs | Done |
 | **8. Smoke validation** | `scripts/run_smoke.sh` — 200-sample end-to-end on GPU 0 | Done |
-| **9. Full training run** | `full-Qwen3VL4BInstruct-r16-20260708-170640` on 3,688 train rows | Done |
+| **9. Full training run (2-source)** | `full-Qwen3VL4BInstruct-r16-20260708-170640` on 3,688 train rows | Done |
 | **10. Cross-site eval** | SLAKE pipeline (`src/build_crosssite.py`, `scripts/eval_crosssite.sh`) | Done |
-| **11. VQA-Med integration** | `src/vqa_med_io.py`, `load_vqa_med`, chest X-ray filter, 3rd training source | Done (post full run) |
+| **11. VQA-Med integration** | `src/vqa_med_io.py`, `load_vqa_med`, chest X-ray filter, 3rd training source | Done |
 | **12. Task balancing** | `balance_tasks: true` — 60/40 VQA/report mix on full training | Done |
+| **13. Full training run (3-source)** | `full-Qwen3VL4BInstruct-r16-20260709-142243` on 4,725 train rows + SLAKE cross-site | Done |
 
 ---
 
@@ -99,9 +100,27 @@ These are registered in `ADAPTERS` and flow into `data/processed/{train,val,test
 | 2 | `iu_xray` | [IU X-Ray](https://huggingface.co/datasets/dz-osamu/IU-Xray) | Report | Open | Chest X-ray findings; zip/image fallback |
 | 3 | `vqa_med` | ImageCLEF VQA-Med 2019–2021 | VQA | Open | **Chest X-ray / plain film only**; 2020 train via AIcrowd zip |
 
-#### Rows used in the reference full run (`data_version: 91e79275`)
+#### Rows used in the reference full run (`data_version: 2e673c1d`)
 
-The run `full-Qwen3VL4BInstruct-r16-20260708-170640` was trained **before** VQA-Med was added. Its data snapshot:
+The current flagship run `full-Qwen3VL4BInstruct-r16-20260709-142243` uses all three training sources with task balancing:
+
+| Split | Total | Notes |
+|-------|-------|-------|
+| **Train** (balanced) | **4,725** | 60% VQA / 40% report after `balance_tasks` |
+| **Test** (in-domain eval) | **1,179** | Frozen test; includes VQA-Med XR slice |
+| **`data_version`** | `2e673c1d` | — |
+
+Per-source in-domain VQA on the 1,179-example test set (finetuned model):
+
+| Source | VQA acc | VQA F1 | Base acc | Base F1 | Δ acc |
+|--------|---------|--------|----------|---------|-------|
+| **VQA-RAD** | 0.5144 | 0.3616 | 0.4723 | 0.2638 | **+4.2 pp** |
+| **VQA-Med (XR)** | 0.0725 | 0.0938 | 0.0145 | 0.0374 | **+5.8 pp** |
+| **IU X-Ray** (report) | — | — | — | — | BLEU/ROUGE only |
+
+#### Previous full run (`data_version: 91e79275`) — 2 sources only
+
+Run `full-Qwen3VL4BInstruct-r16-20260708-170640` predates VQA-Med:
 
 | Split | Total | VQA-RAD (VQA) | IU X-Ray (report) |
 |-------|-------|---------------|-------------------|
@@ -109,18 +128,6 @@ The run `full-Qwen3VL4BInstruct-r16-20260708-170640` was trained **before** VQA-
 | **Val** | 470 | 174 | 296 |
 | **Test** (in-domain eval) | **1,041** | 451 | 590 |
 | **Total** | **5,199** | 2,244 | 2,955 |
-
-#### Full rebuild with all 3 training sources (estimated, XR filter, no 2020 AIcrowd train)
-
-| Split | Total | VQA-RAD | IU X-Ray | VQA-Med (XR) |
-|-------|-------|---------|----------|--------------|
-| Train | ~4,904 | 1,619 | 2,069 | ~1,216 |
-| Val | ~752 | 174 | 296 | ~282 |
-| Test | ~1,179 | 451 | 590 | ~138 |
-
-With `balance_tasks: true` (60% VQA / 40% report), effective training samples are ~**4,725** (report downsampled to preserve mix).
-
-VQA-Med full XR corpus (no `--limit`): **~1,636 QA rows**, **562 images** (2019: 1,440 | 2020: 103 | 2021: 93 QA rows). Add AIcrowd 2020 train zip for complete 2019–2021 coverage.
 
 ---
 

@@ -6,8 +6,9 @@
 #   4. print the leaderboard
 #
 # Env knobs:
-#   SMOKE_LIMIT   rows imported per source (default 400)
-#   SMOKE_GPU     GPU index (default 0)
+#   SMOKE_LIMIT    rows imported per source per split (default 400)
+#   SMOKE_SOURCES  space-separated sources (default: vqa_rad iu_xray vqa_med)
+#   SMOKE_GPU      GPU index (default 0)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,9 +26,11 @@ fi
 
 SMOKE_LIMIT="${SMOKE_LIMIT:-400}"
 SMOKE_GPU="${SMOKE_GPU:-0}"
+SMOKE_SOURCES="${SMOKE_SOURCES:-vqa_rad iu_xray vqa_med}"
 
-echo "==> [1/4] Building dataset subset (limit ${SMOKE_LIMIT} per source)"
-python -m src.build_dataset --limit "${SMOKE_LIMIT}"
+echo "==> [1/4] Building dataset subset (limit ${SMOKE_LIMIT} per source; sources: ${SMOKE_SOURCES})"
+# shellcheck disable=SC2086
+python -m src.build_dataset --sources ${SMOKE_SOURCES} --limit "${SMOKE_LIMIT}"
 
 echo "==> [2/4] Smoke training + eval on GPU ${SMOKE_GPU}"
 python -m src.train_lora --smoke --gpu "${SMOKE_GPU}" --eval-after

@@ -151,6 +151,7 @@ def main() -> None:
         data_mix=c.get("data_mix"),
         max_samples=c.get("max_samples"),
         seed=int(c.get("seed", 3407)),
+        balance_tasks=bool(c.get("balance_tasks", True)),
     )
     n_train = len(dataset)
     print(f"    {n_train} training examples")

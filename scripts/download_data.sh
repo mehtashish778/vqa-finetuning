@@ -2,7 +2,7 @@
 # Download the open datasets and build the unified train/val/test JSONL.
 # Extra args are forwarded to src.build_dataset, e.g.:
 #   bash scripts/download_data.sh --limit 300
-#   bash scripts/download_data.sh --sources vqa_rad
+#   bash scripts/download_data.sh --sources vqa_rad iu_xray vqa_med
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

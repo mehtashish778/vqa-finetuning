@@ -54,6 +54,16 @@ adapter in `src/datasets_registry.py` with no other changes):
 - **IU X-Ray** — `dz-osamu/IU-Xray` (chest X-ray + findings, official
   train/val/test). Falls back to `Shrey-1329/cxiu_hf_dataset` if the primary
   repo has no image files.
+- **VQA-Med** — ImageCLEF 2019–2021 (`claudioreeves/imageclef-vqa-med-2019` +
+  GitHub zips for 2020/2021). **Chest X-ray / plain film only** (CT/MRI/US
+  excluded). 2020 training data is on [AIcrowd](https://www.aicrowd.com/challenges/imageclef-2020-vqa-med-vqa)
+  — place the train zip under `data/raw/vqa_med/downloads/` or set
+  `VQA_MED_SKIP_2020_TRAIN=1` for partial integration.
+
+```bash
+python -m src.build_dataset --sources vqa_rad iu_xray vqa_med
+python scripts/probe_vqa_med.py    # schema + XR filter counts
+```
 
 Unified storage schema (one JSON object per line):
 
@@ -121,9 +131,11 @@ Results are written to `outputs/runs/<run_id>/crosssite_<name>.json` and merged
 into a `crosssite` field on the registry row (the in-domain `metrics.json` is
 left untouched). The frozen base is scored as a baseline and cached separately
 (keyed by `base_model + crosssite_version`). `scripts/leaderboard.py` shows a
-`cs_vqa_acc` / `cs_d_acc` column beside the in-domain numbers. Cross-site scores
-are typically lower than in-domain (different institution and question mix) —
-that gap is the generalization signal.
+`cs:<set>` / `csd:<set>` column per cross-site set beside the in-domain numbers.
+
+**Note:** VQA-Med is used for **training** only (in-domain benchmark). Do not
+register it in `CROSSSITE_ADAPTERS`. Any prior experimental `vqa_med_cxr`
+cross-site registry rows are obsolete after this integration.
 
 ### Running many experiments (2 GPUs)
 

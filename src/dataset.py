@@ -44,6 +44,46 @@ def to_messages(row: Dict, image: Optional[Image.Image] = None) -> Dict:
     }
 
 
+def _balance_by_mix(
+    rows: List[Dict],
+    data_mix: Optional[Dict[str, float]],
+    seed: int,
+) -> List[Dict]:
+    """Downsample to honor task mix weights on the full split (no max_samples cap)."""
+    rng = random.Random(seed)
+    if not data_mix or not rows:
+        shuffled = rows[:]
+        rng.shuffle(shuffled)
+        return shuffled
+
+    by_task: Dict[str, List[Dict]] = defaultdict(list)
+    for r in rows:
+        by_task[r["task"]].append(r)
+    for task_rows in by_task.values():
+        rng.shuffle(task_rows)
+
+    weights = {t: data_mix.get(t, 0.0) for t in by_task}
+    total_weight = sum(weights.values())
+    if total_weight <= 0:
+        shuffled = rows[:]
+        rng.shuffle(shuffled)
+        return shuffled
+
+    norm = {t: w / total_weight for t, w in weights.items() if w > 0}
+    max_total = min(
+        len(by_task[t]) / norm[t] for t in norm if norm[t] > 0
+    )
+    selected: List[Dict] = []
+    for task, task_rows in by_task.items():
+        share = norm.get(task, 0.0)
+        if share <= 0:
+            continue
+        take = min(len(task_rows), max(1, int(round(max_total * share))))
+        selected.extend(task_rows[:take])
+    rng.shuffle(selected)
+    return selected
+
+
 def _select_by_mix(
     rows: List[Dict],
     data_mix: Optional[Dict[str, float]],
@@ -92,6 +132,7 @@ def make_sft_dataset(
     data_mix: Optional[Dict[str, float]] = None,
     max_samples: Optional[int] = None,
     seed: int = 3407,
+    balance_tasks: bool = False,
 ):
     """Return a HuggingFace ``Dataset`` yielding {'messages': ...} lazily."""
     from datasets import Dataset
@@ -99,7 +140,10 @@ def make_sft_dataset(
     rows = load_rows(processed_dir, split)
     if not rows:
         raise ValueError(f"No rows found for split '{split}' in {processed_dir}.")
-    rows = _select_by_mix(rows, data_mix, max_samples, seed)
+    if max_samples is not None:
+        rows = _select_by_mix(rows, data_mix, max_samples, seed)
+    elif balance_tasks:
+        rows = _balance_by_mix(rows, data_mix, seed)
 
     ds = Dataset.from_list(rows)
 

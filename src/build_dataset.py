@@ -109,11 +109,16 @@ def build(
     out_dir: Path,
 ) -> Dict:
     all_rows: List[Dict] = []
+    vqa_med_filter: Dict = {}
     for source in sources:
         if source not in ADAPTERS:
             raise ValueError(f"Unknown source '{source}'. Known: {list(ADAPTERS)}")
         print(f"==> Importing source: {source}")
         rows = ADAPTERS[source](image_max_side=image_max_side, limit=limit)
+        if source == "vqa_med":
+            from .vqa_med_io import LAST_FILTER_STATS
+
+            vqa_med_filter = dict(LAST_FILTER_STATS)
         print(f"    {len(rows)} rows")
         all_rows.extend(rows)
 
@@ -131,6 +136,8 @@ def build(
         print(f"==> Wrote {out_dir / f'{split}.jsonl'} ({n} rows)")
 
     stats = _stats(all_rows, data_version, image_max_side)
+    if vqa_med_filter:
+        stats["vqa_med_filter"] = vqa_med_filter
     with open(out_dir / "stats.json", "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2)
     print(f"==> data_version = {data_version}")

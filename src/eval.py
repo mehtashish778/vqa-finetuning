@@ -24,6 +24,7 @@ import random
 import re
 import string
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -62,7 +63,7 @@ def _token_f1(pred: str, gold: str) -> float:
 
 
 def _compute_metrics(preds: List[Dict]) -> Dict[str, float]:
-    """preds: list of {task, answer_type, pred, gold}."""
+    """preds: list of {task, answer_type, pred, gold, source?}."""
     metrics: Dict[str, float] = {}
 
     vqa = [p for p in preds if p["task"] == "vqa"]
@@ -75,6 +76,28 @@ def _compute_metrics(preds: List[Dict]) -> Dict[str, float]:
         metrics["vqa_f1"] = round(
             sum(_token_f1(p["pred"], p["gold"]) for p in open_rows) / len(open_rows), 4
         )
+        by_source: Dict[str, List[Dict]] = defaultdict(list)
+        for p in vqa:
+            by_source[p.get("source") or "unknown"].append(p)
+        acc_by_src: Dict[str, float] = {}
+        f1_by_src: Dict[str, float] = {}
+        for src, src_rows in sorted(by_source.items()):
+            acc_by_src[src] = round(
+                sum(
+                    1
+                    for p in src_rows
+                    if normalize_answer(p["pred"]) == normalize_answer(p["gold"])
+                )
+                / len(src_rows),
+                4,
+            )
+            open_src = [p for p in src_rows if p.get("answer_type") == "open"] or src_rows
+            f1_by_src[src] = round(
+                sum(_token_f1(p["pred"], p["gold"]) for p in open_src) / len(open_src),
+                4,
+            )
+        metrics["vqa_acc_by_source"] = acc_by_src
+        metrics["vqa_f1_by_source"] = f1_by_src
 
     report = [p for p in preds if p["task"] == "report"]
     if report:
@@ -123,6 +146,7 @@ def _score_model(model_ref: str, rows: List[Dict], cfg: Dict) -> Dict[str, float
         preds.append(
             {
                 "task": row["task"],
+                "source": row.get("source"),
                 "answer_type": row.get("answer_type"),
                 "pred": pred,
                 "gold": row["target"],
