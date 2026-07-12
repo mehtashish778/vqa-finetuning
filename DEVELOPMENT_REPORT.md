@@ -1,8 +1,9 @@
 # VQA Finetuning Project — Development Report
 
-**Generated:** 2026-07-09  
+**Generated:** 2026-07-12  
 **Repository:** `vqa-finetuning`  
-**Primary reference run:** [`full-Qwen3VL4BInstruct-r16-20260709-142243`](outputs/runs/full-Qwen3VL4BInstruct-r16-20260709-142243)
+**Best in-domain VQA run:** [`full-Qwen3VL4BInstruct-r16-20260708-170640`](outputs/runs/full-Qwen3VL4BInstruct-r16-20260708-170640) (VQA-RAD + IU X-Ray)  
+**Latest 3-source run:** [`full-Qwen3VL4BInstruct-r16-20260709-142243`](outputs/runs/full-Qwen3VL4BInstruct-r16-20260709-142243) (VQA-RAD + IU X-Ray + VQA-Med XR)
 
 ---
 
@@ -18,7 +19,16 @@ Development to date includes:
 - Automated experiment tracking (`outputs/registry.jsonl`, `outputs/leaderboard.md`)
 - Post-training hooks for in-domain eval (`--eval-after`) and cross-site eval (`--crosssite-after`)
 
-The current **flagship full training run** (`full-Qwen3VL4BInstruct-r16-20260709-142243`) trains on **VQA-RAD + IU X-Ray + VQA-Med (chest X-ray)** with task balancing and is evaluated on **1,179 frozen test examples** (`data_version: 2e673c1d`), achieving **+4.6 pp VQA accuracy** and **+8.1 pp VQA F1** over the frozen base on the expanded test set. Report generation improves by **+6.4 BLEU** and **+14.9 ROUGE-L**. Cross-site eval on **2,122 SLAKE** English chest X-ray questions shows **39.4% accuracy** (base model: **54.1%**), indicating a generalization gap on held-out external data.
+### Current status (as of 2026-07-12)
+
+| Run | Sources | VQA acc | VQA F1 | Report BLEU / ROUGE-L | SLAKE cross-site | Role |
+|-----|---------|---------|--------|----------------------|------------------|------|
+| **`…170640`** (Jul 8) | `vqa_rad`, `iu_xray` | **0.5499** | **0.3800** | 0.0743 / 0.2656 | Not run | **Best in-domain VQA** |
+| **`…142243`** (Jul 9) | + `vqa_med` | 0.4109 | 0.2523 | 0.0746 / 0.2651 | **0.3944** (base 0.5410) | Latest 3-source; broader but weaker |
+
+**Key finding:** Adding incomplete VQA-Med (missing 2020 AIcrowd train zip) lowered headline VQA accuracy by ~14 pp versus the Jul 8 2-source run. Report metrics stayed essentially unchanged. On SLAKE, fine-tuning *hurt* generalization (−14.7 pp vs frozen base). Use Jul 8 for VQA-RAD work until VQA-Med data is complete.
+
+Processed data is still `data_version: 2e673c1d` (rebuild on 2026-07-09 confirmed identical counts; **2020 train still skipped**).
 
 ---
 
@@ -63,7 +73,7 @@ flowchart TB
 |-----------|----------------|
 | Pluggable sources | `src/datasets_registry.py` — `ADAPTERS` (training) vs `CROSSSITE_ADAPTERS` (eval-only) |
 | No data leakage | Official splits honored; `study_id`-level carving; frozen `data_version` hash on test set |
-| Comparable benchmarks | Baseline cached per `(base_model, data_version)`; deltas logged in registry |
+| Comparable benchmarks | Baseline cached per `(base_model, data_version)`; deltas logged in registry; prefer `vqa_acc_by_source` when test mix changes |
 | Portability | Relative paths, HF cache under `data/hf_cache/`, WSL-compatible (`UNSLOTH_COMPILE_DISABLE`) |
 
 ---
@@ -80,11 +90,12 @@ flowchart TB
 | **6. Evaluation** | `src/eval.py` — VQA acc/F1, report BLEU/ROUGE-L, baseline comparison | Done |
 | **7. Model registry** | `src/registry.py`, `scripts/leaderboard.py`, per-run artifact dirs | Done |
 | **8. Smoke validation** | `scripts/run_smoke.sh` — 200-sample end-to-end on GPU 0 | Done |
-| **9. Full training run (2-source)** | `full-Qwen3VL4BInstruct-r16-20260708-170640` on 3,688 train rows | Done |
+| **9. Full training run (2-source)** | `full-…-170640` on 3,688 train rows — **best VQA to date** | Done |
 | **10. Cross-site eval** | SLAKE pipeline (`src/build_crosssite.py`, `scripts/eval_crosssite.sh`) | Done |
-| **11. VQA-Med integration** | `src/vqa_med_io.py`, `load_vqa_med`, chest X-ray filter, 3rd training source | Done |
+| **11. VQA-Med integration** | `src/vqa_med_io.py`, `load_vqa_med`, chest X-ray filter, 3rd training source | Done (partial: no 2020 train) |
 | **12. Task balancing** | `balance_tasks: true` — 60/40 VQA/report mix on full training | Done |
-| **13. Full training run (3-source)** | `full-Qwen3VL4BInstruct-r16-20260709-142243` on 4,725 train rows + SLAKE cross-site | Done |
+| **13. Full training run (3-source)** | `full-…-142243` on 4,725 train rows + SLAKE cross-site | Done |
+| **14. Rebuild / probe** | Re-download + rebuild (`2e673c1d`); confirmed 2020 train still missing | Done (no new data) |
 
 ---
 
@@ -98,36 +109,34 @@ These are registered in `ADAPTERS` and flow into `data/processed/{train,val,test
 |---|------------|---------|------|--------|----------------|
 | 1 | `vqa_rad` | [VQA-RAD](https://huggingface.co/datasets/flaviagiammarino/vqa-rad) | VQA | Open | Radiology Q&A; official train/test |
 | 2 | `iu_xray` | [IU X-Ray](https://huggingface.co/datasets/dz-osamu/IU-Xray) | Report | Open | Chest X-ray findings; zip/image fallback |
-| 3 | `vqa_med` | ImageCLEF VQA-Med 2019–2021 | VQA | Open | **Chest X-ray / plain film only**; 2020 train via AIcrowd zip |
+| 3 | `vqa_med` | ImageCLEF VQA-Med 2019–2021 | VQA | Open | **Chest X-ray / plain film only**; 2020 train via AIcrowd zip (**still missing**) |
 
-#### Rows used in the reference full run (`data_version: 2e673c1d`)
+#### Current processed split (`data_version: 2e673c1d`)
 
-The current flagship run `full-Qwen3VL4BInstruct-r16-20260709-142243` uses all three training sources with task balancing:
+| Split | Total | VQA-RAD | IU X-Ray | VQA-Med XR |
+|-------|-------|---------|----------|------------|
+| **Train** (raw JSONL) | 4,904 | 1,619 | 2,069 | 1,216 |
+| **Val** | 752 | 174 | 296 | 282 |
+| **Test** | 1,179 | 451 | 590 | 138 |
+| **Total** | 6,835 | 2,244 | 2,955 | 1,636 |
 
-| Split | Total | Notes |
-|-------|-------|-------|
-| **Train** (balanced) | **4,725** | 60% VQA / 40% report after `balance_tasks` |
-| **Test** (in-domain eval) | **1,179** | Frozen test; includes VQA-Med XR slice |
-| **`data_version`** | `2e673c1d` | — |
+After `balance_tasks` (60% VQA / 40% report), the Jul 9 run used **4,725** training examples. VQA-RAD’s share of training steps dropped from ~44% (Jul 8, all rows) to ~34% (Jul 9, mixed with VQA-Med).
 
-Per-source in-domain VQA on the 1,179-example test set (finetuned model):
+VQA-Med filter notes (`stats.json`):
 
-| Source | VQA acc | VQA F1 | Base acc | Base F1 | Δ acc |
-|--------|---------|--------|----------|---------|-------|
-| **VQA-RAD** | 0.5144 | 0.3616 | 0.4723 | 0.2638 | **+4.2 pp** |
-| **VQA-Med (XR)** | 0.0725 | 0.0938 | 0.0145 | 0.0374 | **+5.8 pp** |
-| **IU X-Ray** (report) | — | — | — | — | BLEU/ROUGE only |
+- 2019: 4,200 images → 366 XR kept → 1,440 QA rows
+- 2020/2021: val/test GitHub zips only; **`2020_train` skipped** (no local `*Train*.zip` under `data/raw/vqa_med/downloads/`)
+- Merged VQA-Med: 1,636 rows / 562 images (mostly 2019)
 
-#### Previous full run (`data_version: 91e79275`) — 2 sources only
+#### Previous 2-source split (`data_version: 91e79275`)
 
-Run `full-Qwen3VL4BInstruct-r16-20260708-170640` predates VQA-Med:
+Used by Jul 8 run `…170640`:
 
 | Split | Total | VQA-RAD (VQA) | IU X-Ray (report) |
 |-------|-------|---------------|-------------------|
 | **Train** | **3,688** | 1,619 | 2,069 |
 | **Val** | 470 | 174 | 296 |
-| **Test** (in-domain eval) | **1,041** | 451 | 590 |
-| **Total** | **5,199** | 2,244 | 2,955 |
+| **Test** | **1,041** | 451 | 590 |
 
 ---
 
@@ -141,72 +150,76 @@ Held out from training. Registered in `CROSSSITE_ADAPTERS` only.
 
 | Metric | Value |
 |--------|-------|
-| `crosssite_version` | `a332b51b` |
+| `crosssite_version` | `a332b51b` (build); Jul 9 eval logged `unknown` in registry |
 | Closed QA | 663 |
 | Open QA | 1,459 |
 | Output | `data/crosssite/slake_xray_en.jsonl` |
 
-Cross-site scores measure **generalization** to an external institution/question mix. They do not affect `data_version` or in-domain `metrics.json`.
+Cross-site scores measure **generalization**. They do not affect `data_version` or in-domain `metrics.json`.
+
+### 4.3 Planned closed datasets (not in use)
+
+Credentialed sources planned for later scale-up; **not** in current `data/processed`. Full detail: **§8.2**.
+
+| Dataset | Task | Access | Status |
+|---------|------|--------|--------|
+| **MIMIC-CXR** | Report (~227k) | PhysioNet | Planned — no local data |
+| **MIMIC-CXR-VQA** | VQA | PhysioNet | Planned — no local data |
+
+Pipeline already supports filtering via `"access": "closed"` and `python -m src.build_dataset --access all`.
 
 ---
 
-## 5. Reference run: `full-Qwen3VL4BInstruct-r16-20260708-170640`
+## 5. Full-run comparison
 
-### 5.1 Run configuration
+Headline VQA numbers are **not apples-to-apples**: Jul 9 adds 138 VQA-Med test rows (7.25% acc) and a new `data_version`. Prefer per-source metrics.
 
-| Field | Value |
-|-------|-------|
-| **Run ID** | `full-Qwen3VL4BInstruct-r16-20260708-170640` |
-| **Base model** | `unsloth/Qwen3-VL-4B-Instruct` |
-| **Method** | 4-bit QLoRA |
-| **LoRA** | r=16, alpha=32 |
-| **Learning rate** | 2e-4 |
-| **Epochs** | 2 |
-| **Task mix** | 60% VQA / 40% report |
-| **Training sources** | `vqa_rad`, `iu_xray` |
-| **Train examples** | 3,688 |
-| **Eval examples** | 1,041 (full frozen test) |
-| **`data_version`** | `91e79275` |
-| **GPU** | 0 |
-| **Git commit** | `bfde551` |
-| **Started** | 2026-07-08 17:06:40 |
-| **Evaluated** | 2026-07-08 21:22:23 |
-| **Adapter path** | `outputs/runs/full-Qwen3VL4BInstruct-r16-20260708-170640/lora/` |
+| Field | Jul 8 `…170640` | Jul 9 `…142243` |
+|-------|-----------------|-----------------|
+| **Sources** | `vqa_rad`, `iu_xray` | + `vqa_med` |
+| **Train / eval** | 3,688 / 1,041 | 4,725 / 1,179 |
+| **Train time** | 52.2 min | 67.8 min |
+| **`data_version`** | `91e79275` | `2e673c1d` |
+| **GPU** | 0 | 1 |
+| **Git commit** | `bfde551` | `4510a6c` |
+| **VQA acc / F1** | **0.5499 / 0.3800** | 0.4109 / 0.2523 |
+| **Δ vs base (acc / F1)** | **+0.0776 / +0.1162** | +0.0459 / +0.0809 |
+| **Report BLEU / ROUGE-L** | 0.0743 / 0.2656 | 0.0746 / 0.2651 |
+| **SLAKE acc (finetuned / base)** | — | 0.3944 / 0.5410 |
 
-### 5.2 Training time
+### 5.1 Per-source VQA (Jul 9)
 
-| Phase | Duration |
-|-------|----------|
-| **LoRA training** | **52.2 minutes** (~3,131 s) |
-| In-domain eval (1,041 test rows) | ~several hours (GPU 1; generation-bound) |
-| Cross-site eval (SLAKE) | Not run on this full run |
+| Source | Finetuned acc | Finetuned F1 | Base acc | Δ acc |
+|--------|---------------|--------------|----------|-------|
+| **VQA-RAD** | 0.5144 | 0.3616 | 0.4723 | +4.2 pp |
+| **VQA-Med (XR)** | 0.0725 | 0.0938 | 0.0145 | +5.8 pp |
 
-Training time is recorded in the registry as `train_minutes: 52.17`.
+On the shared VQA-RAD slice, Jul 9 (51.4%) is still below Jul 8’s overall VQA (55.0%), which was VQA-RAD-only.
 
-### 5.3 In-domain metrics (frozen test set)
+### 5.2 Why Jul 9 underperformed
 
-| Metric | Finetuned | Frozen base | **Δ (finetuned − base)** |
-|--------|-----------|-------------|--------------------------|
-| **VQA accuracy** | **0.5499** | 0.4723 | **+0.0776** |
-| **VQA F1** (open-ended) | **0.3800** | 0.2638 | **+0.1162** |
-| **Report BLEU** | **0.0743** | 0.0108 | **+0.0635** |
-| **Report ROUGE-L** | **0.2656** | 0.1165 | **+0.1491** |
+1. **Different test mix** — overall VQA blends strong VQA-RAD with weak VQA-Med.
+2. **Less VQA-RAD exposure** — ~44% → ~34% of training steps after mixing + `balance_tasks`.
+3. **Incomplete VQA-Med** — missing 2020 train; heterogeneous ImageCLEF questions; tiny XR-filtered set.
+4. **Cross-site overfit** — SLAKE dropped 14.7 pp vs frozen base after fine-tuning.
 
-**Interpretation:**
+Report generation did **not** regress.
 
-- VQA improved by ~**8 percentage points** exact-match accuracy on the combined VQA-RAD test split.
-- Report generation improved substantially on BLEU/ROUGE-L from a very weak base (expected for untrained VLMs on long-form radiology text).
-- This run did **not** include VQA-Med in training or test; a rebuild with `vqa_med` will produce a new `data_version` and non-comparable headline numbers.
-
-### 5.4 Artifacts
+### 5.3 Artifacts
 
 ```
 outputs/runs/full-Qwen3VL4BInstruct-r16-20260708-170640/
-├── config.snapshot.yaml    # frozen hyperparameters
-├── run.json                # run metadata
-├── metrics.json            # in-domain benchmarks + baseline
-├── train.log               # training log
-└── lora/                   # saved LoRA adapter + tokenizer
+├── config.snapshot.yaml
+├── run.json
+├── metrics.json
+└── lora/
+
+outputs/runs/full-Qwen3VL4BInstruct-r16-20260709-142243/
+├── config.snapshot.yaml
+├── run.json
+├── metrics.json
+├── crosssite_slake_xray_en.json
+└── lora/
 ```
 
 ---
@@ -215,10 +228,13 @@ outputs/runs/full-Qwen3VL4BInstruct-r16-20260708-170640/
 
 | Run ID | Type | n_train | n_eval | Train (min) | VQA acc | Δ acc | Notes |
 |--------|------|---------|--------|-------------|---------|-------|-------|
-| `smoke-…-162605` | Smoke | 200 | 40 | 1.75 | 0.50 | +0.05 | Cross-site SLAKE 50-sample eval done |
-| `smoke-…-163050` | Smoke | 200 | 40 | 5.18 | 0.55 | +0.10 | — |
-| `smoke-…-20260709-124448` | Smoke | 200 | 40 | 1.78 | 0.25 | +0.00 | Includes `vqa_med` (partial build) |
-| **`full-…-170640`** | **Full** | **3688** | **1041** | **52.17** | **0.55** | **+0.08** | **Primary benchmark run** |
+| `smoke-…-163050` | Smoke | 200 | 40 | 5.18 | 0.55 | +0.10 | 2-source |
+| `smoke-…-162605` | Smoke | 200 | 40 | 1.75 | 0.50 | +0.05 | SLAKE 50-sample |
+| **`full-…-170640`** | **Full** | **3688** | **1041** | **52.17** | **0.55** | **+0.08** | **Best in-domain VQA** |
+| `smoke-…-124448` | Smoke | 200 | 40 | 1.78 | 0.25 | +0.00 | +vqa_med; 0% on vqa_med |
+| **`full-…-142243`** | **Full** | **4725** | **1179** | **67.75** | **0.41** | **+0.05** | 3-source + SLAKE 39.4% |
+
+Incomplete / aborted: `full-…-131844` (trained, no eval), `full-…-134003` (started).
 
 Full leaderboard: [`outputs/leaderboard.md`](outputs/leaderboard.md)
 
@@ -245,51 +261,74 @@ From the original [`vlm_report_vqa_plan.md`](vlm_report_vqa_plan.md) and current
 
 | Dataset | Role | Rationale |
 |---------|------|-----------|
-| **VQA-Med 2020 train** (AIcrowd) | Training VQA | Completes ImageCLEF 2019–2021; adapter already supports manual zip drop-in |
+| **VQA-Med 2020 train** (AIcrowd) | Training VQA | **Blocking** — adapter ready; place `*Train*.zip` under `data/raw/vqa_med/downloads/` |
 | **PMC-VQA / ROCO** | Training VQA | Large-scale open medical VQA for diversity |
 | **SLAKE (training split)** | Optional training VQA | Currently cross-site only; could add train portion if eval split is redesigned |
 
-### 8.2 Credentialed / closed (future, optional)
+### 8.2 Planned closed / credentialed datasets
 
-| Dataset | Role | Access |
-|---------|------|--------|
-| **MIMIC-CXR** | Report generation scale (~227k) | PhysioNet credentialing |
-| **MIMIC-CXR-VQA** | VQA scale | PhysioNet credentialing |
+**Policy:** train and publish on **open data only** for now. Closed sources are designed in via the unified JSONL `access` field (`open` | `closed`) and `src.build_dataset --access {open,closed,all}` (default `open`). Public baselines stay reproducible without PhysioNet credentials.
 
-Integration path: convert to unified JSONL with `"access": "closed"`, `"source": "mimic"` — no pipeline schema changes.
+| Dataset | Task | Approx. scale | Access | What it adds | Planned `source` key |
+|---------|------|---------------|--------|--------------|----------------------|
+| **MIMIC-CXR** | Report | ~227k studies / images + free-text reports | [PhysioNet](https://physionet.org/) credentialed (CITI + DUA) | Production-scale **report generation**; richer findings/impression style than IU X-Ray | `mimic` |
+| **MIMIC-CXR-VQA** | VQA | Report-derived Q&A over MIMIC images | PhysioNet credentialed (same family) | Large-scale **chest X-ray VQA** beyond VQA-RAD / VQA-Med XR | `mimic_vqa` (or `mimic`) |
 
-### 8.3 Augmentation & semi-open
+**Not used yet.** Placeholders and hooks already in the pipeline:
 
-| Dataset / technique | Role |
-|---------------------|------|
-| **PadChest** | Reports + labels (registration required) |
-| **CheXpert / NIH labels** | Weak supervision, auxiliary tasks |
-| **Bounding boxes** | Localization VQA (“where is X?”) |
-| **LLM-generated Q&A from IU reports** | Cheap VQA scaling from existing report data |
+- Tag every closed row `"access": "closed"` so open-only builds ignore them.
+- Store raw files under `data/raw/closed/` (or `data/raw/mimic/`) once credentials are granted.
+- Add one loader in `src/datasets_registry.py` + register in `ADAPTERS`; rebuild with `--access all`.
+- Keep open-data LoRA checkpoints (e.g. Jul 8 `…170640`) as the public reference; closed runs are optional internal scale-ups.
 
-### 8.4 Evaluation enhancements (planned)
+**Integration steps (when access is granted):**
+
+1. Complete PhysioNet credentialing and download MIMIC-CXR / MIMIC-CXR-VQA under the DUA.
+2. Convert to the same unified JSONL schema (`task`, `source`, `access`, `image`, `study_id`, `prompt`, `target`, `split`, …).
+3. Drop under `data/raw/closed/`, rebuild:
+   ```bash
+   python -m src.build_dataset --sources vqa_rad iu_xray vqa_med mimic --access all
+   ```
+4. Retrain with the same Unsloth QLoRA recipe; optionally rebalance `data_mix` toward reports if MIMIC dominates.
+5. Evaluate with per-source metrics + cross-site (SLAKE); do not mix closed test rows into the public open `data_version` without documenting a separate closed eval track.
+
+### 8.3 Semi-open / registration & augmentation
+
+| Dataset / technique | Access | Role |
+|---------------------|--------|------|
+| **PadChest** | Registration (semi-open; Spanish reports + labels) | Extra report / label supervision once licensed |
+| **CheXpert / NIH labels** | Open or restricted depending on release | Weak supervision / auxiliary multi-label findings |
+| **Bounding boxes** | Depends on source | Localization VQA (“where is X?”) |
+| **LLM-generated Q&A from IU reports** | Derived from open IU X-Ray | Cheap VQA scaling without closed data |
+
+### 8.4 Evaluation / training enhancements (planned)
 
 | Item | Description |
 |------|-------------|
 | CheXbert / RadGraph F1 | Clinical report metrics (mentioned in original plan) |
-| Per-source leaderboard columns | Already partially implemented (`vqa_acc_by_source`) |
-| Dedicated VQA-Med test slice | Track in-domain VQA-Med generalization after full rebuild |
+| Per-source training weights | Cap/oversample sources inside `src/dataset.py` (today only task-level mix) |
+| Dedicated VQA-Med test slice | Track in-domain VQA-Med after full 2020 rebuild |
+| Fair re-eval | Score Jul 8 adapter on shared VQA-RAD-only slice of `2e673c1d` |
 
 ---
 
 ## 9. Recommended next steps
 
-1. **Full rebuild** with all three training sources (no `--limit`):
+1. **Do not retrain on the current incomplete VQA-Med mix** — expect another Jul 9–style regression.
+2. **Add VQA-Med 2020 AIcrowd train zip** to `data/raw/vqa_med/downloads/` (filename must match `*Train*.zip` or `*train*.zip`), then rebuild and confirm `2020_train` is no longer skipped and `data_version` changes:
    ```bash
-   bash scripts/download_data.sh --sources vqa_rad iu_xray vqa_med
+   python -m src.build_dataset --sources vqa_rad iu_xray vqa_med
+   python scripts/probe_vqa_med.py
    ```
-2. **Add VQA-Med 2020 AIcrowd train zip** to `data/raw/vqa_med/downloads/` for maximum VQA-Med coverage.
-3. **Retrain** with post-training eval:
+3. **Until then, train 2-source** (replicate Jul 8) or hyperparameter-sweep on that recipe:
    ```bash
-   bash scripts/run_full.sh --eval-after --crosssite-after --crosssite-name all
+   python -m src.build_dataset --sources vqa_rad iu_xray
+   bash scripts/run_full.sh --eval-after --crosssite-after
+   # optional: --lora-r 32 --epochs 3 --lr 1e-4
    ```
-4. Compare new `data_version` against `91e79275` using per-source metrics (`vqa_acc_by_source`).
-5. Pursue **MIMIC-CXR** access when credentialed data is required for production-scale report generation.
+4. **Always judge with `vqa_acc_by_source` + SLAKE**, not blended headline VQA alone when the test mix changes.
+5. After complete VQA-Med data: smoke → full train with `--eval-after --crosssite-after`; require vqa_med smoke acc ≫ 0 before another mixed full run.
+6. When open-data VQA is solid, pursue **PhysioNet credentialing** for the planned closed sets (**MIMIC-CXR**, **MIMIC-CXR-VQA**) — see §8.2; do not block open experiments on closed access.
 
 ---
 
@@ -297,10 +336,12 @@ Integration path: convert to unified JSONL with `"access": "closed"`, `"source":
 
 - VQA-RAD: [flaviagiammarino/vqa-rad](https://huggingface.co/datasets/flaviagiammarino/vqa-rad)
 - IU X-Ray: [dz-osamu/IU-Xray](https://huggingface.co/datasets/dz-osamu/IU-Xray)
-- VQA-Med: [ImageCLEF VQA-Med](https://www.imageclef.org/2021/medical/vqa)
+- VQA-Med: [ImageCLEF VQA-Med](https://www.imageclef.org/2021/medical/vqa) · [AIcrowd 2020](https://www.aicrowd.com/challenges/imageclef-2020-vqa-med-vqa)
 - SLAKE: [Keetawan/SLAKE](https://huggingface.co/datasets/Keetawan/SLAKE)
 - Unsloth: [unsloth/Qwen3-VL-4B-Instruct](https://huggingface.co/unsloth/Qwen3-VL-4B-Instruct)
+- **Planned closed:** [MIMIC-CXR (PhysioNet)](https://physionet.org/content/mimic-cxr/) · MIMIC-CXR-VQA (PhysioNet / derived) — see §8.2
+- Original plan: [`vlm_report_vqa_plan.md`](vlm_report_vqa_plan.md)
 
 ---
 
-*This report reflects the repository state as of 2026-07-09. The reference full run predates VQA-Med training integration; dataset counts in Section 4.1 distinguish “used in run” vs “available after full rebuild.”*
+*This report reflects the repository state as of 2026-07-12. Processed data is still `2e673c1d` with incomplete VQA-Med (no 2020 train). Jul 8 (`…170640`) remains the best in-domain VQA adapter; Jul 9 (`…142243`) is the latest 3-source run with SLAKE cross-site results.*
